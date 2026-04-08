@@ -3,33 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Подтверждение платежа</title>
+    <title>Mock Passkey Test</title>
     <style>
-        body { font-family: -apple-system, Roboto, sans-serif; padding: 24px; text-align: center; background: #F8F9FA; }
+        body { font-family: sans-serif; padding: 24px; text-align: center; background: #F8F9FA; }
         .card { background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 20px; }
-        .amount { font-size: 24px; font-weight: bold; color: #2C3E50; margin: 16px 0; }
-        .btn { background: #00B259; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; width: 100%; cursor: pointer; margin-top: 20px; font-weight: bold; }
-        .btn:active { background: #00964b; }
+        .btn { background: #00B259; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; width: 100%; cursor: pointer; font-weight: bold; }
+        .log { margin-top: 20px; font-family: monospace; font-size: 12px; color: #555; text-align: left; background: #eee; padding: 10px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word;}
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>FreedomPay Auth</h2>
-        <p>Подтвердите оплату заказа</p>
-        <div class="amount">15 000 KZT</div>
-        <button class="btn" onclick="simulatePasskey()">Подтвердить (Passkey)</button>
+        <h2>SDK Bridge Test</h2>
+        <p>Тестирование без бэкенда</p>
+        <button class="btn" id="btn" onclick="testPasskeyFlow()">Вызвать Passkey</button>
+        <div id="log" class="log">Ожидание действий...</div>
     </div>
 
     <script>
-        function simulatePasskey() {
-            // В реальности здесь будет вызов navigator.credentials.get()
-            alert("Имитация вызова системного Credential Manager...");
-            
-            // После успешной подписи делаем редирект обратно в приложение (SDK)
-            // Используем кастомную схему, которую мы перехватим в Android
-            setTimeout(() => {
-                window.location.href = "freedompay-sdk://auth-success?token=mock_jwe_token_123";
-            }, 1000);
+        // Вспомогательная функция: превращает обычную строку в бинарный буфер (нужно для WebAuthn)
+        function stringToArrayBuffer(str) {
+            return Uint8Array.from(str, c => c.charCodeAt(0));
+        }
+
+        function log(msg) {
+            document.getElementById('log').innerText += "\n> " + msg;
+        }
+
+        async function testPasskeyFlow() {
+            try {
+                log("Подготовка фейкового JSON...");
+                
+                // Это мок (заглушка) серверного ответа для РЕГИСТРАЦИИ ключа
+                const mockCreateOptions = {
+                    publicKey: {
+                        // Челлендж должен быть буфером
+                        challenge: stringToArrayBuffer("fake_random_challenge_12345"),
+                        // rpId ОБЯЗАТЕЛЬНО должен совпадать с доменом, где лежит этот HTML!
+                        rp: { name: "FreedomPay Test", id: window.location.hostname },
+                        user: {
+                            id: stringToArrayBuffer("user_id_001"),
+                            name: "test@freedompay.kz",
+                            displayName: "Тестовый Пользователь"
+                        },
+                        pubKeyCredParams: [
+                            { type: "public-key", alg: -7 }, // ECDSA
+                            { type: "public-key", alg: -257 } // RSA
+                        ],
+                        authenticatorSelection: { userVerification: "discouraged" },
+                        timeout: 60000
+                    }
+                };
+
+                log("Вызов системного API Android...");
+                
+                // Эта строка вызывает ту самую шторку с отпечатком пальца / лицом
+                const credential = await navigator.credentials.create(mockCreateOptions);
+
+                log("Успех! Ключ сгенерирован.");
+                console.log(credential); // В консоли можно посмотреть сырой ответ
+
+                log("Редирект в Android SDK через 2 секунды...");
+                document.getElementById('btn').style.background = "#ccc";
+
+                // Имитируем возврат успешного токена в ваше Android-приложение
+                setTimeout(() => {
+                    window.location.href = "freedompay-sdk://auth-success?token=mock_success_123";
+                }, 2000);
+
+            } catch (error) {
+                log("ОШИБКА: " + error.message);
+                if (error.name === 'NotAllowedError') {
+                    log("Пользователь отменил или закрыл шторку.");
+                }
+            }
         }
     </script>
 </body>
