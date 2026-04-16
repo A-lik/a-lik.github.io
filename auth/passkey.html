@@ -7,15 +7,20 @@
     <style>
         body { font-family: sans-serif; padding: 24px; text-align: center; background: #F8F9FA; }
         .card { background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 20px; }
-        .btn { background: #00B259; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; width: 100%; cursor: pointer; font-weight: bold; }
-        .log { margin-top: 20px; font-family: monospace; font-size: 12px; color: #555; text-align: left; background: #eee; padding: 10px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word;}
+        .btn { background: #00B259; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; width: 100%; cursor: pointer; font-weight: bold; margin-bottom: 12px; }
+        .btn-auth { background: #0056b3; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .log { margin-top: 20px; font-family: monospace; font-size: 12px; color: #555; text-align: left; background: #eee; padding: 10px; border-radius: 8px; white-space: pre-wrap; word-wrap: break-word; max-height: 250px; overflow-y: auto;}
     </style>
 </head>
 <body>
     <div class="card">
         <h2>SDK Bridge Test</h2>
         <p>Тестирование без бэкенда</p>
-        <button class="btn" id="btn" onclick="testPasskeyFlow()">Вызвать Passkey</button>
+        
+        <button class="btn" id="btn-reg" onclick="registerPasskey()">Регистрация (Create)</button>
+        <button class="btn btn-auth" id="btn-auth" onclick="loginPasskey()">Вход (Get)</button>
+        
         <div id="log" class="log">Ожидание действий...</div>
     </div>
 
@@ -26,19 +31,25 @@
         }
 
         function log(msg) {
-            document.getElementById('log').innerText += "\n> " + msg;
+            const logDiv = document.getElementById('log');
+            logDiv.innerText += "\n> " + msg;
+            logDiv.scrollTop = logDiv.scrollHeight; // Автоскролл вниз
         }
 
-        async function testPasskeyFlow() {
+        function disableButtons() {
+            document.getElementById('btn-reg').disabled = true;
+            document.getElementById('btn-auth').disabled = true;
+        }
+
+        // --- 1. РЕГИСТРАЦИЯ НОВОГО PASSKEY ---
+        async function registerPasskey() {
             try {
+                log("--- СТАРТ РЕГИСТРАЦИИ ---");
                 log("Подготовка фейкового JSON...");
                 
-                // Это мок (заглушка) серверного ответа для РЕГИСТРАЦИИ ключа
                 const mockCreateOptions = {
                     publicKey: {
-                        // Челлендж должен быть буфером
                         challenge: stringToArrayBuffer("fake_random_challenge_12345"),
-                        // rpId ОБЯЗАТЕЛЬНО должен совпадать с доменом, где лежит этот HTML!
                         rp: { name: "FreedomPay Test", id: window.location.hostname },
                         user: {
                             id: stringToArrayBuffer("user_id_001"),
@@ -49,31 +60,68 @@
                             { type: "public-key", alg: -7 }, // ECDSA
                             { type: "public-key", alg: -257 } // RSA
                         ],
-                        authenticatorSelection: { userVerification: "discouraged" },
+                        authenticatorSelection: { 
+                            userVerification: "preferred",
+                            residentKey: "required" // Требуем сохранения ключа (discoverable credential)
+                        },
                         timeout: 60000
                     }
                 };
 
-                log("Вызов системного API Android...");
-                
-                // Эта строка вызывает ту самую шторку с отпечатком пальца / лицом
+                log("Вызов navigator.credentials.create()...");
                 const credential = await navigator.credentials.create(mockCreateOptions);
 
                 log("Успех! Ключ сгенерирован.");
-                console.log(credential); // В консоли можно посмотреть сырой ответ
+                console.log("Registration Credential:", credential);
 
+                disableButtons();
                 log("Редирект в Android SDK через 2 секунды...");
-                document.getElementById('btn').style.background = "#ccc";
-
-                // Имитируем возврат успешного токена в ваше Android-приложение
+                
                 setTimeout(() => {
-                    window.location.href = "freedompay-sdk://auth-success?token=mock_success_123";
+                    window.location.href = "freedompay-sdk://auth-success?action=register&token=mock_reg_success_123";
                 }, 2000);
 
             } catch (error) {
-                log("ОШИБКА: " + error.message);
+                log("ОШИБКА РЕГИСТРАЦИИ: " + error.message);
                 if (error.name === 'NotAllowedError') {
                     log("Пользователь отменил или закрыл шторку.");
+                }
+            }
+        }
+
+        // --- 2. АУТЕНТИФИКАЦИЯ (ВХОД) ПО СУЩЕСТВУЮЩЕМУ PASSKEY ---
+        async function loginPasskey() {
+            try {
+                log("--- СТАРТ АУТЕНТИФИКАЦИИ ---");
+                log("Подготовка фейкового JSON...");
+
+                const mockGetOptions = {
+                    publicKey: {
+                        challenge: stringToArrayBuffer("fake_random_challenge_login_67890"),
+                        rpId: window.location.hostname,
+                        // allowCredentials не передаем, чтобы браузер сам нашел сохраненные ключи для этого домена
+                        userVerification: "preferred",
+                        timeout: 60000
+                    }
+                };
+
+                log("Вызов navigator.credentials.get()...");
+                const assertion = await navigator.credentials.get(mockGetOptions);
+
+                log("Успех! Ключ подтвержден.");
+                console.log("Authentication Assertion:", assertion);
+
+                disableButtons();
+                log("Редирект в Android SDK через 2 секунды...");
+                
+                setTimeout(() => {
+                    window.location.href = "freedompay-sdk://auth-success?action=login&token=mock_login_success_456";
+                }, 2000);
+
+            } catch (error) {
+                log("ОШИБКА ВХОДА: " + error.message);
+                if (error.name === 'NotAllowedError') {
+                    log("Пользователь отменил шторку или нет сохраненных ключей для этого домена.");
                 }
             }
         }
